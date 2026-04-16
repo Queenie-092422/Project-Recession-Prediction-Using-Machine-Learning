@@ -1,0 +1,142 @@
+---
+title: "Recession Prediction Using Machine Learning"
+author: "Monet Knupp"
+date: "2026-04-16"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    toc_collapsed: 
+      # collapsed: true
+      # smooth_scroll: true
+    theme: simplex
+  pdf_document:
+    toc: true
+---
+<style>
+p {text-align: justify;} h1.title { text-align: font-weight: bold; } 
+</style>
+
+```{r, include=FALSE}
+#====================================================================================
+#Libraries and Tools
+
+#To support data collection, analysis, and modeling, I use several R packages commonly applied in financial and economic analysis. The quantmod package is used to retrieve macroeconomic data directly from the Federal Reserve Economic Data (FRED) database. Data #manipulation is handled using dplyr, tidyr, and lubridate, while ggplot2 is used for #visualization. These tools provide a reproducible workflow for building and evaluating #recession prediction models.
+#===================================================================================
+```
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+pkgs <- c("quantmod", "ggplot2", "dplyr", "tidyr", "lubridate")
+new_pkgs <- pkgs[!(pkgs %in% installed.packages()[, "Package"])]
+if(length(new_pkgs)) install.packages(new_pkgs)
+
+# Load libraries
+library(quantmod)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(zoo)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Introduction
+Understanding and predicting economic recessions remains a central objective in financial economics, given their profound impact on financial markets, corporate performance, and policy decision-making. Traditional approaches to recession forecasting have largely relied on econometric models using a relatively limited set of macroeconomic indicators, such as the yield curve spread, unemployment rates, and inflation. While these models provide valuable insights, they often struggle to capture complex, nonlinear relationships that may exist across a broader set of financial and economic variables.
+
+This project investigates whether machine learning techniques can improve the early detection and prediction of U.S. recessions relative to traditional statistical approaches. Specifically, the analysis focuses on classification models that predict recession periods using a diverse set of macroeconomic and financial indicators obtained from the Federal Reserve Economic Data [FRED](https://fred.stlouisfed.org) database.
+
+Building on prior feedback, the project expands beyond a narrow set of predictors to incorporate a richer and more comprehensive feature space. In addition to standard macroeconomic variables (e.g., yield spreads, unemployment, inflation), the dataset will include financial market indicators such as equity indices and, where feasible, sentiment-related measures. This broader set of predictors is particularly well-suited for machine learning methods, such as Random Forest and LASSO, which are designed to handle high-dimensional data and identify the most informative variables.
+
+From a methodological perspective, the project compares a traditional logistic regression benchmark with machine learning models, including Random Forest and Gradient Boosting. Model evaluation will incorporate both cross-validation techniques and an out-of-time validation framework, ensuring that predictive performance reflects realistic forecasting conditions rather than purely in-sample accuracy. In addition, model performance will be assessed using multiple evaluation metrics to provide a more comprehensive understanding of predictive effectiveness.
+
+At this stage (Week 11), the focus is on preliminary data acquisition and exploration in R. These steps include retrieving key macroeconomic indicators, validating data structures, and identifying stylized relationships that will inform subsequent feature engineering and model development. Importantly, recession periods will be defined using the NBER-based recession indicator (USREC) obtained from FRED, which will serve as the dependent variable in the classification models.
+
+
+### Preliminary Data Exploration 
+
+As an initial step, the yield curve spread (10-year Treasury yield minus 3-month Treasury yield) is examined due to its well-documented role as a leading indicator of economic recessions. Prior literature has consistently shown that periods of yield curve inversion—when the spread becomes negative—tend to precede economic downturns.
+
+```{r yield-curve-full-history, message=FALSE, warning=FALSE}
+getSymbols("T10Y3M", src = "FRED")
+
+yield_data <- data.frame(
+  date = index(T10Y3M),
+  spread = as.numeric(T10Y3M)
+) %>%
+  filter(date >= as.Date("1982-01-01"))
+
+ggplot(yield_data, aes(x = date, y = spread)) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  labs(
+    title = "Yield Curve Spread (10-Year Treasury Yield Minus 3-Month Treasury Bill Rate)",
+    subtitle = "1982–Present",
+    x = "Date",
+    y = "Percentage Points",
+    caption = "Source: Federal Reserve Economic Data (FRED), Federal Reserve Bank of St. Louis"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+The long-run behavior of the yield curve spread reveals a consistent cyclical pattern across multiple economic periods. Notably, the spread tends to decline prior to recessions and occasionally becomes negative, indicating an inversion of the yield curve. This stylized fact has been extensively documented in the literature and supports the use of the yield curve as a key predictive variable in recession forecasting models.
+
+Examining this extended historical period is valuable because it highlights the robustness of the relationship across different macroeconomic environments. However, for modeling purposes, it is also important to consider a more recent and structurally consistent time frame.
+
+### Modeling Sample Definition:
+
+To better align with the modeling stage of this project, I restrict the sample to the period from 2000 to present. This allows the analysis to focus on more modern economic conditions, including the 2001 recession and the 2007–2009 financial crisis, while avoiding structural differences in earlier decades.
+
+As the project transitions from exploratory analysis to model development, the following visualization focuses on the yield curve spread within the modeling sample.
+
+```{r yield-curve-2000-present, message=FALSE, warning=FALSE}
+plot_data <- yield_data %>%
+  filter(date >= as.Date("2000-01-01"))
+
+ggplot(plot_data, aes(x = date, y = spread)) +
+  geom_line(color = "#1f77b4", linewidth = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  labs(
+    title = "Yield Curve Spread (10-Year Treasury Yield Minus 3-Month Treasury Bill Rate)",
+    subtitle = "2000–Present",
+    x = "Date",
+    y = "Percentage Points",
+    caption = "Source: Federal Reserve Economic Data (FRED)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+
+Restricting the sample in this way reduces structural differences across economic regimes and ensures that the dataset reflects conditions relevant to contemporary forecasting. Importantly, periods where the spread falls below zero (yield curve inversion) have historically preceded U.S. recessions, reinforcing its role as a leading indicator in the modeling framework.
+
+This relationship provides a strong economic justification for including the yield curve spread as a key predictor in the machine learning models developed in subsequent stages of the project.
+
+
+### References
+
+Estrella, A., & Mishkin, F. (1996). The yield curve as a predictor of U.S. recessions. Federal Reserve Bank of New York.  
+https://www.newyorkfed.org/medialibrary/media/research/current_issues/ci2-7.pdf  
+
+Federal Reserve Economic Data (FRED), Federal Reserve Bank of St. Louis.  
+https://fred.stlouisfed.org  
+
+National Bureau of Economic Research (NBER). U.S. Business Cycle Dating Committee.  
+https://www.nber.org/research/business-cycle-dating  
+```
