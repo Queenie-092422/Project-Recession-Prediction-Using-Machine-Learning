@@ -57,10 +57,11 @@ pkgs <- c(
   "broom"
 )
 
-new_pkgs <- pkgs[!pkgs %in% installed.packages()[, "Package"]]
-
-if (length(new_pkgs) > 0) {
-  install.packages(new_pkgs, repos = "https://cloud.r-project.org")
+installed <- rownames(installed.packages())
+for (p in pkgs) {
+  if (!(p %in% installed)) {
+    install.packages(p, repos = "https://cloud.r-project.org")
+  }
 }
 
 # Data manipulation & visualization
@@ -110,8 +111,234 @@ From an artificial intelligence perspective, the model can be viewed as a decisi
 
 Recession periods are defined using the [NBER-based recession indicator (USREC)](https://fred.stlouisfed.org/series/USREC?utm_source=chatgpt.com) obtained from the Federal Reserve Economic Data Federal Reserve Bank of St. Louis ([FRED](https://fred.stlouisfed.org/)) database, which serves as the dependent variable in the classification models.
 
-```{r cars}
-summary(cars)
+# II. Overview of Data Sources
+
+This project uses publicly available time-series data from the Federal Reserve Economic Data ([FRED](https://fred.stlouisfed.org/)) database. FRED is selected for its reliability, standardized data structure, and extensive coverage of macroeconomic and financial indicators, making it a widely accepted source in both academic research and policy analysis.
+
+The analysis incorporates the following variables:
+
+- **[T10Y3M](https://fred.stlouisfed.org/series/T10Y3M)**: The spread between the 10-year and 3-month Treasury constant maturity rates. This yield curve measure is widely recognized as a leading indicator of economic downturns, as an inverted yield curve has historically preceded recessions.
+- **[UNRATE](https://fred.stlouisfed.org/series/UNRATE)**: The U.S. civilian unemployment rate. This variable reflects labor market conditions and serves as a key indicator of economic slack.
+- **[CPIAUCSL](https://fred.stlouisfed.org/series/CPIAUCSL)**: The Consumer Price Index for All Urban Consumers. This series is used to measure inflation, typically expressed as a year-over-year percentage change.
+- **[INDPRO](https://fred.stlouisfed.org/series/INDPRO)**: The Industrial Production Index. This indicator captures real economic activity by measuring output in the manufacturing, mining, and utilities sectors.
+- **[FEDFUNDS](https://fred.stlouisfed.org/series/FEDFUNDS)**: The effective federal funds rate. This variable represents the stance of monetary policy and influences borrowing costs, investment, and overall economic activity.
+- **[USREC](https://fred.stlouisfed.org/series/USREC)**: The National Bureau of Economic Research (NBER)-based recession indicator. This binary variable identifies official recession periods and serves as the dependent (target) variable in the classification models.
+- **[SP500](https://fred.stlouisfed.org/series/SP500)**: The S&P 500 index level. This variable reflects equity market performance and incorporates forward-looking expectations about economic conditions.
+- **[VIXCLS](https://fred.stlouisfed.org/series/VIXCLS)**: The CBOE Volatility Index (VIX). This measure captures market uncertainty and investor risk sentiment, often increasing during periods of financial stress.
+- **[DCOILWTICO](https://fred.stlouisfed.org/series/DCOILWTICO)**: The West Texas Intermediate (WTI) crude oil price. This variable represents energy market conditions, as oil price shocks can influence both inflation dynamics and overall economic activity.
+
+Although current inflationary pressures and geopolitical risks are important considerations, they are not included as subjective event-based variables. Instead, their effects are indirectly captured through observable macroeconomic and financial indicators.
+
+Because these variables originate from different historical periods and may differ in frequency, all series are transformed into a consistent monthly frequency and aligned over a common sample period. This step is necessary to ensure comparability across predictors and to avoid biases introduced by missing or uneven data coverage.
+
+Collectively, these variables capture complementary dimensions of the economic cycle, including financial markets, labor conditions, production activity, and monetary policy. While these indicators are economically related, their interactions are often nonlinear and involve varying lead–lag relationships. This complexity provides a strong motivation for the use of machine learning methods, which are better suited to capture such dynamics compared to traditional linear models.
+
+```{r download-fred-data}
+# FRED series used in the project
+fred_symbols <- c(
+  "T10Y3M",      # 10Y minus 3M yield spread
+  "UNRATE",     # unemployment rate
+  "CPIAUCSL",   # CPI
+  "INDPRO",     # industrial production
+  "FEDFUNDS",   # federal funds rate
+  "USREC",      # recession indicator
+  "SP500",      # S&P 500 index
+  "VIXCLS",     # VIX
+  "DCOILWTICO"  # WTI oil price
+)
+
+getSymbols(fred_symbols, src = "FRED")
 ```
 
-## Including Plots
+## II.1 Data Preparation (Monthly Data for Modeling)
+
+This section describes how the FRED time-series data are prepared for recession prediction modeling. The initial data collection begins in 1980 to capture a modern economic period while avoiding excessive missing values from earlier historical observations. However, because some financial market indicators, particularly the CBOE Volatility Index (VIX), are only available beginning in 1990, the final modeling dataset is restricted to the common period in which all selected variables are available.
+
+All variables are converted to a monthly frequency to ensure consistency across indicators. For higher-frequency series, the last available observation within each month is retained. This approach preserves the most recent information available while maintaining a uniform structure across variables.
+
+After converting each series to a monthly format, the datasets are merged into a single dataframe. Because different variables begin at different points in time, missing values are expected in the initial merged dataset. To ensure consistency in the modeling process, the dataset is restricted to the common sample period beginning in 1990, and observations with missing values are removed.
+
+The resulting dataset forms the final input for the classification models, where the NBER recession indicator (USREC) serves as the dependent variable.
+
+```{r}
+# Define study period
+start_date <- as.Date("1980-01-01")
+end_date   <- Sys.Date()
+
+```
+
+```{r helper-functions}
+# Convert an xts object to a monthly tibble using the last non-missing observation in each month
+to_monthly_tbl <- function(x, var_name) {
+  tibble(
+    date = as.Date(index(x)),
+    value = as.numeric(x[, 1])
+  ) %>%
+    filter(!is.na(value)) %>%
+    mutate(month = floor_date(date, "month")) %>%
+    group_by(month) %>%
+    summarize("{var_name}" := last(value), .groups = "drop") %>%
+    filter(month >= start_date, month <= end_date)
+}
+```
+
+```{r prepare-monthly-data}
+# Convert each series to monthly frequency; Apply Conversion to All Variables
+t10y3m_m   <- to_monthly_tbl(T10Y3M, "yield_spread")
+unrate_m   <- to_monthly_tbl(UNRATE, "unemployment")
+cpi_m      <- to_monthly_tbl(CPIAUCSL, "cpi")
+indpro_m   <- to_monthly_tbl(INDPRO, "industrial_production")
+fedfunds_m <- to_monthly_tbl(FEDFUNDS, "fed_funds")
+usrec_m    <- to_monthly_tbl(USREC, "recession")
+sp500_m    <- to_monthly_tbl(SP500, "sp500")
+vix_m      <- to_monthly_tbl(VIXCLS, "vix")
+oil_m      <- to_monthly_tbl(DCOILWTICO, "wti_oil")
+
+```
+
+```{r Merge All-Variables}
+# Merge all monthly datasets into one dataframe
+# A full join is used first to preserve all available observations before cleaning
+raw_df <- t10y3m_m %>%
+  full_join(unrate_m, by = "month") %>%
+  full_join(cpi_m, by = "month") %>%
+  full_join(indpro_m, by = "month") %>%
+  full_join(fedfunds_m, by = "month") %>%
+  full_join(usrec_m, by = "month") %>%
+  full_join(sp500_m, by = "month") %>%
+  full_join(vix_m, by = "month") %>%
+  full_join(oil_m, by = "month") %>%
+  arrange(month)
+
+# Inspect beginning and ending observations
+head(raw_df)
+tail(raw_df)
+
+```
+
+```{r Check Missing-Values}
+#Different variables begin at different points in time, so missing values are expected.
+
+colSums(is.na(raw_df))
+```
+
+```{r Create Final Modeling Dataset}
+# Restrict the dataset to the common sample period and remove remaining missing values
+model_df <- raw_df %>%
+  filter(month >= as.Date("1990-01-01")) %>%
+  drop_na()
+
+# Final dataset check
+glimpse(model_df)
+
+```
+
+```{rPreview of Final Dataset}
+# Preview the most recent observations in the final modeling dataset
+
+model_df %>%
+  tail() %>%
+  as.data.frame() %>%
+  kbl(caption = "Recent Observations of Final Modeling Dataset") %>%
+  kable_styling(full_width = TRUE, bootstrap_options = c("striped", "condensed")) %>%
+  column_spec(1:ncol(.), width = "6em")
+```
+
+```{r}
+## ✅ With this improved version (no forward button, fits HTML + PDF)
+
+library(knitr)
+library(kableExtra)
+
+# Create a clean display version (does NOT modify your actual data)
+preview_df <- model_df %>%
+  tail(12) %>%   # show last 12 months instead of 6
+  rename(
+    Month = month,
+    Recession = recession,
+    Yield = yield_spread,
+    Unemp = unemployment,
+    CPI = cpi,
+    IndProd = industrial_production,
+    FedFunds = fed_funds,
+    SP500 = sp500,
+    VIX = vix,
+    Oil = wti_oil
+  )
+
+preview_df %>%
+  kable(
+    caption = "Recent Observations of Final Modeling Dataset",
+    digits = 3,
+    align = "c"
+  ) %>%
+  kable_styling(
+    full_width = TRUE,
+    font_size = 8,
+    position = "center"
+  ) %>%
+  row_spec(0, bold = TRUE) %>%
+  column_spec(1:ncol(preview_df), width = "6em")
+```
+
+
+## II.2 Data Preparation - Aggregated by Decade (Descriptive Context)
+
+To complement the monthly dataset used for modeling, the analysis includes a decade-level summary of selected macroeconomic variables. This aggregation provides a high-level view of how economic conditions have evolved across different time periods, including the 1980s, 1990s, 2000s, 2010s, and 2020s.
+
+Each decade reflects a distinct economic environment. The 1980s were characterized by high inflation and tight monetary policy, the 1990s by economic expansion and relative stability, the 2000s by major financial disruptions including the dot-com collapse and the global financial crisis, the 2010s by prolonged low interest rates and recovery, and the 2020s by the economic shock associated with the COVID-19 pandemic and subsequent inflationary pressures.
+
+For this analysis, monthly observations are grouped by decade, and summary statistics—such as average unemployment—are calculated for each period.
+
+It is important to emphasize that this aggregated representation is **descriptive in nature**. Because recession periods are relatively short compared to the length of a decade, averaging data over long time horizons smooths out cyclical fluctuations and does not capture the precise timing or severity of recessions. In particular, while the unemployment rate tends to rise during recessions, it is a lagging indicator and therefore reflects the economic impact of downturns rather than providing early signals.
+
+As a result, the decade-level analysis is used solely to provide contextual insight into long-term economic trends. The primary analysis and model evaluation rely on the higher-frequency monthly dataset, which is more appropriate for identifying and predicting recession periods.
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+raw_df <- raw_df %>%
+  mutate(decade = paste0(floor(year(month) / 10) * 10, "s"))
+```
+
+
+```{r}
+decade_summary <- raw_df %>%
+  group_by(decade) %>%
+  summarise(
+    avg_yield_spread = mean(yield_spread, na.rm = TRUE),
+    avg_unemployment = mean(unemployment, na.rm = TRUE),
+    avg_cpi = mean(cpi, na.rm = TRUE),
+    avg_industrial_prod = mean(industrial_production, na.rm = TRUE),
+    avg_fed_funds = mean(fed_funds, na.rm = TRUE),
+    recession_rate = mean(recession, na.rm = TRUE)
+  )
+```
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+decade_summary %>%
+  kable(caption = "Macroeconomic Summary by Decade") %>%
+  kable_styling(full_width = FALSE)
+```
+
+```{r}
+ggplot(decade_summary, aes(x = decade, y = avg_unemployment, fill = avg_unemployment)) +
+  geom_col() +
+  scale_fill_gradient(low = "lightblue", high = "darkred") +
+  labs(
+    title = "Average Unemployment Rate by Decade",
+    x = "Decade",
+    y = "Unemployment Rate (%)",
+    fill = "Unemployment"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.title.y = element_text(hjust = 0.5)
+  )
+```
+
