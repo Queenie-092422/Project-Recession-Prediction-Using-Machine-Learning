@@ -1,0 +1,636 @@
+---
+title: "Recession Prediction Using Machine Learning"
+author: "Monet Knupp"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+    theme: simplex
+    df_print: paged
+  pdf_document:
+    toc: true
+    number_sections: false
+    css: styles.css
+fontsize: 10pt
+geometry: margin=1in
+---
+<style>
+p {text-align: justify;} h1.title { text-align: font-weight: bold; } 
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 9,
+  fig.height = 5,
+  fig.path = "figures/"
+)
+
+dir.create("figures", showWarnings = FALSE)
+
+graphics.off()
+```
+
+```{r, include=FALSE}
+#==================================================================================
+#Libraries and Tools
+
+#To support data collection, preprocessing, modeling, and evaluation, I use several R packages commonly applied in financial and economic analysis. The tidyverse (including dplyr, tidyr, and ggplot2) is used for data manipulation and visualization, providing a consistent and readable workflow. The quantmod package is used to retrieve financial market data such as ETF prices, while lubridate and zoo support time series handling and date transformations. For scaling and improving visualization readability, the scales package is applied. Machine learning modeling and validation are conducted using caret, along with specific algorithms such as randomForest and glmnet for predictive modeling. Model performance is evaluated using pROC and yardstick, which provide metrics such as AUC, accuracy, and precision. Finally, knitr and kableExtra are used to generate and format the final report outputs, while broom is used to convert model results into tidy formats for interpretation. These tools collectively provide a reproducible and structured workflow for building and evaluating recession prediction models.
+#===================================================================================
+```
+
+```{r }
+
+pkgs <- c(
+  "tidyverse",
+  "quantmod",
+  "lubridate",
+  "zoo",
+  "scales",
+  "caret",
+  "randomForest",
+  "glmnet",
+  "pROC",
+  "yardstick",
+  "knitr",
+  "kableExtra",
+  "broom"
+)
+
+installed <- rownames(installed.packages())
+for (p in pkgs) {
+  if (!(p %in% installed)) {
+    install.packages(p, repos = "https://cloud.r-project.org")
+  }
+}
+
+# Data manipulation & visualization
+library(tidyverse)
+library(scales)
+
+# Time series handling
+library(lubridate)
+library(zoo)
+
+# Financial data
+library(quantmod)
+
+# Machine learning
+library(caret)
+library(randomForest)
+library(glmnet)
+
+# Model evaluation
+library(pROC)
+library(yardstick)
+
+# Reporting
+library(knitr)
+library(kableExtra)
+library(broom)
+set.seed(6574)
+
+```
+
+
+# I. Introduction
+
+Understanding and predicting economic recessions remains a central objective in financial economics, given their significant impact on financial markets, corporate performance, investment decisions, and policy responses. Recessions influence portfolio allocation, credit risk, and business planning, making early detection especially valuable for both practitioners and policymakers. Traditionally, recession forecasting has relied on econometric models using a relatively limited set of macroeconomic indicators, such as the yield curve spread, unemployment rates, and inflation. While these models provide useful insights, they may struggle to capture more complex, nonlinear relationships across a broader set of financial and economic variables.
+
+The central research question of this project is:
+
+**Can machine learning classification models improve the early detection of U.S. recessions relative to a traditional econometric model using macroeconomic and financial indicators?**
+
+To address this question, the project compares a baseline logistic regression model with machine learning approaches, including Random Forest and LASSO logistic regression. The goal is not only to evaluate statistical performance, but also to assess whether machine learning provides meaningful improvements as an early-warning system in a real-world financial context.
+
+Building on prior feedback, the analysis expands beyond a narrow set of predictors to incorporate a richer feature space. In addition to standard macroeconomic variables (e.g., yield spreads, unemployment, and inflation), the dataset includes financial market indicators such as equity indices and other relevant signals. This broader set of predictors is particularly well-suited for machine learning methods, which are designed to handle high-dimensional data and identify the most informative variables.
+
+From a methodological perspective, model performance is evaluated using both cross-validation techniques and an out-of-time validation framework. This approach ensures that results reflect realistic forecasting conditions rather than purely in-sample accuracy. Multiple evaluation metrics are also used to provide a more comprehensive assessment of predictive effectiveness.
+
+From an artificial intelligence perspective, the model can be viewed as a decision-support system. It takes macro-financial data as inputs, learns patterns from historical observations, and produces a probability-based classification of recession risk. In this sense, the model aligns with the concept of an intelligent agent, where economic indicators serve as inputs from the environment and the model output supports financial decision-making.
+
+Recession periods are defined using the [NBER-based recession indicator (USREC)](https://fred.stlouisfed.org/series/USREC?utm_source=chatgpt.com) obtained from the Federal Reserve Economic Data Federal Reserve Bank of St. Louis ([FRED](https://fred.stlouisfed.org/)) database, which serves as the dependent variable in the classification models.
+
+# II. Overview of Data Sources
+
+This project uses publicly available time-series data from the Federal Reserve Economic Data ([FRED](https://fred.stlouisfed.org/)) database. FRED is selected for its reliability, standardized data structure, and extensive coverage of macroeconomic and financial indicators, making it a widely accepted source in both academic research and policy analysis.
+
+The analysis incorporates the following variables:
+
+- **[T10Y3M](https://fred.stlouisfed.org/series/T10Y3M)**: The spread between the 10-year and 3-month Treasury constant maturity rates. This yield curve measure is widely recognized as a leading indicator of economic downturns, as an inverted yield curve has historically preceded recessions.
+- **[UNRATE](https://fred.stlouisfed.org/series/UNRATE)**: The U.S. civilian unemployment rate. This variable reflects labor market conditions and serves as a key indicator of economic slack.
+- **[CPIAUCSL](https://fred.stlouisfed.org/series/CPIAUCSL)**: The Consumer Price Index for All Urban Consumers. This series is used to measure inflation, typically expressed as a year-over-year percentage change.
+- **[INDPRO](https://fred.stlouisfed.org/series/INDPRO)**: The Industrial Production Index. This indicator captures real economic activity by measuring output in the manufacturing, mining, and utilities sectors.
+- **[FEDFUNDS](https://fred.stlouisfed.org/series/FEDFUNDS)**: The effective federal funds rate. This variable represents the stance of monetary policy and influences borrowing costs, investment, and overall economic activity.
+- **[USREC](https://fred.stlouisfed.org/series/USREC)**: The National Bureau of Economic Research (NBER)-based recession indicator. This binary variable identifies official recession periods and serves as the dependent (target) variable in the classification models.
+- **[SP500](https://fred.stlouisfed.org/series/SP500)**: The S&P 500 index level. This variable reflects equity market performance and incorporates forward-looking expectations about economic conditions.
+- **[VIXCLS](https://fred.stlouisfed.org/series/VIXCLS)**: The CBOE Volatility Index (VIX). This measure captures market uncertainty and investor risk sentiment, often increasing during periods of financial stress.
+- **[DCOILWTICO](https://fred.stlouisfed.org/series/DCOILWTICO)**: The West Texas Intermediate (WTI) crude oil price. This variable represents energy market conditions, as oil price shocks can influence both inflation dynamics and overall economic activity.
+
+Although current inflationary pressures and geopolitical risks are important considerations, they are not included as subjective event-based variables. Instead, their effects are indirectly captured through observable macroeconomic and financial indicators.
+
+Because these variables originate from different historical periods and may differ in frequency, all series are transformed into a consistent monthly frequency and aligned over a common sample period. This step is necessary to ensure comparability across predictors and to avoid biases introduced by missing or uneven data coverage.
+
+Collectively, these variables capture complementary dimensions of the economic cycle, including financial markets, labor conditions, production activity, and monetary policy. While these indicators are economically related, their interactions are often nonlinear and involve varying lead–lag relationships. This complexity provides a strong motivation for the use of machine learning methods, which are better suited to capture such dynamics compared to traditional linear models.
+
+```{r download-fred-data}
+# FRED series used in the project
+fred_symbols <- c(
+  "T10Y3M",      # 10Y minus 3M yield spread
+  "UNRATE",     # unemployment rate
+  "CPIAUCSL",   # CPI
+  "INDPRO",     # industrial production
+  "FEDFUNDS",   # federal funds rate
+  "USREC",      # recession indicator
+  "SP500",      # S&P 500 index
+  "VIXCLS",     # VIX
+  "DCOILWTICO"  # WTI oil price
+)
+
+getSymbols(fred_symbols, src = "FRED")
+```
+
+## II.1 Data Preparation (Monthly Data for Modeling)
+
+This section describes how the FRED time-series data are prepared for recession prediction modeling. The initial data collection begins in 1980 to capture a modern economic period while avoiding excessive missing values from earlier historical observations. However, because some financial market indicators, particularly the CBOE Volatility Index (VIX), are only available beginning in 1990, the final modeling dataset is restricted to the common period in which all selected variables are available.
+
+All variables are converted to a monthly frequency to ensure consistency across indicators. For higher-frequency series, the last available observation within each month is retained. This approach preserves the most recent information available while maintaining a uniform structure across variables.
+
+After converting each series to a monthly format, the datasets are merged into a single dataframe. Because different variables begin at different points in time, missing values are expected in the initial merged dataset. To ensure consistency in the modeling process, the dataset is restricted to the common sample period beginning in 1990, and observations with missing values are removed.
+
+The resulting dataset forms the final input for the classification models, where the NBER recession indicator (USREC) serves as the dependent variable.
+
+```{r}
+# Define study period
+start_date <- as.Date("1980-01-01")
+end_date   <- Sys.Date()
+
+```
+
+```{r helper-functions}
+# Convert an xts object to a monthly tibble using the last non-missing observation in each month
+to_monthly_tbl <- function(x, var_name) {
+  tibble(
+    date = as.Date(index(x)),
+    value = as.numeric(x[, 1])
+  ) %>%
+    filter(!is.na(value)) %>%
+    mutate(month = floor_date(date, "month")) %>%
+    group_by(month) %>%
+    summarize("{var_name}" := last(value), .groups = "drop") %>%
+    filter(month >= start_date, month <= end_date)
+}
+```
+
+```{r prepare-monthly-data}
+# Convert each series to monthly frequency; Apply Conversion to All Variables
+t10y3m_m   <- to_monthly_tbl(T10Y3M, "yield_spread")
+unrate_m   <- to_monthly_tbl(UNRATE, "unemployment")
+cpi_m      <- to_monthly_tbl(CPIAUCSL, "cpi")
+indpro_m   <- to_monthly_tbl(INDPRO, "industrial_production")
+fedfunds_m <- to_monthly_tbl(FEDFUNDS, "fed_funds")
+usrec_m    <- to_monthly_tbl(USREC, "recession")
+sp500_m    <- to_monthly_tbl(SP500, "sp500")
+vix_m      <- to_monthly_tbl(VIXCLS, "vix")
+oil_m      <- to_monthly_tbl(DCOILWTICO, "wti_oil")
+
+```
+
+```{r Merge All-Variables}
+# Merge all monthly datasets into one dataframe
+# A full join is used first to preserve all available observations before cleaning
+raw_df <- t10y3m_m %>%
+  full_join(unrate_m, by = "month") %>%
+  full_join(cpi_m, by = "month") %>%
+  full_join(indpro_m, by = "month") %>%
+  full_join(fedfunds_m, by = "month") %>%
+  full_join(usrec_m, by = "month") %>%
+  full_join(sp500_m, by = "month") %>%
+  full_join(vix_m, by = "month") %>%
+  full_join(oil_m, by = "month") %>%
+  arrange(month)
+
+# Inspect beginning and ending observations
+head(raw_df)
+tail(raw_df)
+
+```
+
+```{r Check Missing-Values}
+#Different variables begin at different points in time, so missing values are expected.
+
+colSums(is.na(raw_df))
+```
+
+```{r Create Final Modeling Dataset}
+# Restrict the dataset to the common sample period and remove remaining missing values
+model_df <- raw_df %>%
+  filter(month >= as.Date("1990-01-01")) %>%
+  drop_na()
+
+# Final dataset check
+glimpse(model_df)
+
+```
+
+```{r preview_final_dataset}
+# Preview the most recent observations in the final modeling dataset
+
+preview_df <- model_df %>%
+  tail(12) %>% 
+  as.data.frame()
+
+preview_df %>%
+  kbl(caption = "Recent Observations of Final Modeling Dataset", digits = 3) %>%
+  kable_styling(
+    full_width = TRUE,
+    bootstrap_options = c("striped", "condensed"),
+    font_size = 8
+  ) %>%
+  column_spec(1:ncol(preview_df), width = "6em")
+```
+
+```{r}
+## ✅ With this improved version (no forward button, fits HTML + PDF)
+
+library(knitr)
+library(kableExtra)
+
+# Create a clean display version (does NOT modify your actual data)
+preview_df <- model_df %>%
+  tail(86) %>%   # show last 86 months instead of 6  - Covid Era + recent years
+  rename(
+    Month = month,
+    Recession = recession,
+    Yield = yield_spread,
+    Unemp = unemployment,
+    CPI = cpi,
+    IndProd = industrial_production,
+    FedFunds = fed_funds,
+    SP500 = sp500,
+    VIX = vix,
+    Oil = wti_oil
+  )
+
+preview_df %>%
+  kable(
+    caption = "Recent Observations of Final Modeling Dataset",
+    digits = 3,
+    align = "c"
+  ) %>%
+  kable_styling(
+    full_width = TRUE,
+    font_size = 8,
+    position = "center"
+  ) %>%
+  row_spec(0, bold = TRUE) %>%
+  column_spec(1:ncol(preview_df), width = "6em")
+```
+
+## II.2 Data Preparation - Aggregated by Decade (Descriptive Context)
+
+To complement the monthly dataset used for modeling, the analysis includes a decade-level summary of selected macroeconomic variables. This aggregation provides a high-level view of how economic conditions have evolved across different time periods, including the 1980s, 1990s, 2000s, 2010s, and 2020s.
+
+Each decade reflects a distinct economic environment. The 1980s were characterized by high inflation and tight monetary policy, the 1990s by economic expansion and relative stability, the 2000s by major financial disruptions including the dot-com collapse and the global financial crisis, the 2010s by prolonged low interest rates and recovery, and the 2020s by the economic shock associated with the COVID-19 pandemic and subsequent inflationary pressures.
+
+For this analysis, monthly observations are grouped by decade, and summary statistics—such as average unemployment—are calculated for each period.
+
+It is important to emphasize that this aggregated representation is **descriptive in nature**. Because recession periods are relatively short compared to the length of a decade, averaging data over long time horizons smooths out cyclical fluctuations and does not capture the precise timing or severity of recessions. In particular, while the unemployment rate tends to rise during recessions, it is a lagging indicator and therefore reflects the economic impact of downturns rather than providing early signals.
+
+As a result, the decade-level analysis is used solely to provide contextual insight into long-term economic trends. The primary analysis and model evaluation rely on the higher-frequency monthly dataset, which is more appropriate for identifying and predicting recession periods.
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+raw_df <- raw_df %>%
+  mutate(decade = paste0(floor(year(month) / 10) * 10, "s"))
+```
+
+
+```{r}
+decade_summary <- raw_df %>%
+  group_by(decade) %>%
+  summarise(
+    avg_yield_spread = mean(yield_spread, na.rm = TRUE),
+    avg_unemployment = mean(unemployment, na.rm = TRUE),
+    avg_cpi = mean(cpi, na.rm = TRUE),
+    avg_industrial_prod = mean(industrial_production, na.rm = TRUE),
+    avg_fed_funds = mean(fed_funds, na.rm = TRUE),
+    recession_rate = mean(recession, na.rm = TRUE)
+  )
+```
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+decade_summary %>%
+  kable(caption = "Macroeconomic Summary by Decade") %>%
+  kable_styling(full_width = FALSE)
+```
+
+```{r}
+ggplot(decade_summary, aes(x = decade, y = avg_unemployment, fill = avg_unemployment)) +
+  geom_col() +
+  scale_fill_gradient(low = "lightblue", high = "darkred") +
+  labs(
+    title = "Average Unemployment Rate by Decade",
+    x = "Decade",
+    y = "Unemployment Rate (%)",
+    fill = "Unemployment"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.title.y = element_text(hjust = 0.5)
+  )
+```
+
+# III. Summary Statistics of the Final Dataset
+
+The final modeling dataset consists of monthly macroeconomic and financial variables spanning from 1990 to the present. This period reflects the availability of key financial indicators, particularly the CBOE Volatility Index (VIX), and ensures consistency across all predictors.
+
+The dataset integrates both traditional macroeconomic indicators—such as the yield curve spread, unemployment, inflation, and industrial production—with forward-looking financial variables, including stock market returns, market volatility, and oil price changes. Consistent with prior feedback, the inclusion of financial market variables expands the predictor set, allowing machine learning models such as Random Forest and LASSO to evaluate a richer and more complex feature space.
+
+Summary statistics for the transformed variables are presented in Table X.
+
+Several key patterns emerge from the data:
+
+- **Yield Spread (T10Y3M):** The average yield spread is positive, while minimum values are negative, indicating periods of yield curve inversion. This is consistent with prior research showing that inverted yield curves often precede recessions, making this one of the strongest leading indicators in the dataset.
+- **Labor Market Conditions:** The unemployment rate shows moderate variation across time, while the 12-month change captures periods of labor market deterioration during economic downturns. As a lagging indicator, unemployment reflects recession conditions rather than providing early signals.
+- **Inflation Dynamics:** Year-over-year inflation exhibits both stable and volatile periods, particularly during episodes of elevated price pressure. Inflation is an important variable because it influences monetary policy, which in turn affects economic activity and recession risk.
+- **Industrial Production Growth:** Industrial production growth displays a wide range, reflecting both strong expansions and sharp contractions during recessions. This variable captures real economic activity and cyclical fluctuations.
+- **Financial Market Indicators:** Stock market returns exhibit substantial volatility, including sharp declines during crisis periods, supporting their role as forward-looking indicators. The VIX shows pronounced spikes during periods of financial stress, capturing market uncertainty and risk sentiment. Oil price changes also display significant variation, reflecting external shocks that can propagate through inflation and economic activity.
+- **Target Variable (Recession within 6 Months):** The distribution of the target variable is highly imbalanced, with relatively few recession observations compared to non-recession periods. This class imbalance is important for model evaluation, as accuracy alone may be misleading. Accordingly, metrics such as AUC, recall, and precision are more appropriate for assessing predictive performance.
+
+Overall, the summary statistics confirm that the dataset captures both stable macroeconomic trends and extreme movements during periods of economic stress. These characteristics highlight the limitations of purely linear models and provide strong motivation for the use of machine learning techniques, which are better suited to capture nonlinear relationships and interactions across predictors.
+
+```{r feature-engineering-summary-stats}
+## Create transformed predictors and forward-looking target variable
+
+model_df <- model_df %>%
+  arrange(month) %>%
+  mutate(
+    inflation_yoy = 100 * (cpi / lag(cpi, 12) - 1),
+    indpro_growth_yoy = 100 * (industrial_production / lag(industrial_production, 12) - 1),
+    unrate_change_12m = unemployment - lag(unemployment, 12),
+    sp500_return_1m = 100 * (sp500 / lag(sp500, 1) - 1),
+    sp500_return_12m = 100 * (sp500 / lag(sp500, 12) - 1),
+    oil_return_12m = 100 * (wti_oil / lag(wti_oil, 12) - 1),
+    vix_level = vix,
+
+    rec_lead_1 = lead(recession, 1),
+    rec_lead_2 = lead(recession, 2),
+    rec_lead_3 = lead(recession, 3),
+    rec_lead_4 = lead(recession, 4),
+    rec_lead_5 = lead(recession, 5),
+    rec_lead_6 = lead(recession, 6),
+
+    recession_6m_ahead = if_else(
+      rowSums(across(starts_with("rec_lead_")), na.rm = TRUE) > 0,
+      1, 0
+    )
+  ) %>%
+  filter(month >= as.Date("1980-01-01")) %>%
+  drop_na()
+
+glimpse(model_df)
+```
+
+```{r dataset_summary}
+data_summary <- tibble(
+  Observations = nrow(model_df),
+  Variables = ncol(model_df),
+  Start_Date = min(model_df$month),
+  End_Date = max(model_df$month)
+)
+
+data_summary %>%
+  kable(caption = "Summary of Final Modeling Dataset") %>%
+  kable_styling(full_width = FALSE)
+```
+
+```{r summary-statistics-final}
+## 📊 Summary Statistics Table 
+summary_vars <- c(
+  "yield_spread",
+  "unemployment",
+  "inflation_yoy",
+  "indpro_growth_yoy",
+  "unrate_change_12m",
+  "fed_funds",
+  "sp500_return_1m",
+  "sp500_return_12m",
+  "vix_level",
+  "oil_return_12m"
+)
+
+summary_stats <- model_df %>%
+  select(all_of(summary_vars)) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable) %>%
+  summarise(
+    N = n(),
+    Mean = round(mean(Value, na.rm = TRUE), 3),
+    SD = round(sd(Value, na.rm = TRUE), 3),
+    Min = round(min(Value, na.rm = TRUE), 3),
+    Median = round(median(Value, na.rm = TRUE), 3),
+    Max = round(max(Value, na.rm = TRUE), 3),
+    .groups = "drop"
+  )
+
+summary_stats %>%
+  kable(
+    caption = "Summary Statistics of Model Predictors (1990–Present)",
+    align = "c"
+  ) %>%
+  kable_styling(
+    full_width = FALSE,
+    position = "center",
+    font_size = 9
+  ) %>%
+  row_spec(0, bold = TRUE)
+```
+
+```{r arget-variable-distribution}
+## 🎯 Target Variable Distribution
+
+target_balance <- model_df %>%
+  count(recession_6m_ahead) %>%
+  mutate(
+    Label = if_else(
+      recession_6m_ahead == 1,
+      "Recession within next 6 months",
+      "No recession within next 6 months"
+    ),
+    Share = percent(n / sum(n), accuracy = 0.1)
+  ) %>%
+  select(Label, n, Share)
+
+target_balance %>%
+  kable(
+    caption = "Target Variable Distribution (Class Imbalance Check)",
+    align = "c"
+  ) %>%
+  kable_styling(
+    full_width = FALSE,
+    position = "center"
+  )
+```
+
+# IV. Explanation of Statistical Models and Software Packages Used
+
+This section describes the statistical and machine learning models used to evaluate the central research question of whether machine learning techniques can improve the early detection of U.S. recessions relative to a traditional econometric approach.
+
+Consistent with the project objective and prior feedback, the modeling framework incorporates both traditional macroeconomic indicators and expanded financial market variables. This broader feature set allows for a more comprehensive evaluation of whether machine learning models benefit from richer and higher-dimensional input data.
+
+**Modeling Approach**
+
+The analysis estimates three classification models:
+
+**1. Logistic Regression (Benchmark Model)**
+Logistic regression serves as the traditional econometric benchmark. It models the probability of a recession within the next six months as a function of macroeconomic and financial predictors. This approach is widely used in economic research due to its interpretability and well-understood statistical properties. However, it assumes a linear relationship between predictors and the log-odds of recession risk, which may limit its ability to capture more complex dynamics.
+
+**2. Random Forest (Machine Learning Model)**
+Random Forest is a tree-based ensemble learning method that constructs multiple decision trees and aggregates their predictions. This approach is well-suited for capturing nonlinear relationships and interactions among predictors, which are common in macro-financial data. By allowing for flexible model structure, Random Forest can identify patterns that may not be captured by linear models.
+
+**3. LASSO Logistic Regression (Regularized Model)**
+LASSO (Least Absolute Shrinkage and Selection Operator) extends logistic regression by applying a penalty to model coefficients, shrinking less relevant variables toward zero. This is particularly useful in settings with an expanded predictor set, as it performs implicit variable selection and helps prevent overfitting.
+
+**Evaluation Framework**
+To ensure robust and realistic model evaluation, two complementary validation strategies are used:                                                              
+  - **Cross-Validation (In-Sample Stability)**                                    
+The training data are split into folds using k-fold cross-validation. This approach evaluates model stability and reduces the risk of overfitting by testing performance across multiple subsamples.                                          
+  - **Out-of-Time Validation (Real-World Forecasting)**                           
+The dataset is split chronologically, with models trained on earlier periods and tested on more recent observations. This approach reflects real-world forecasting conditions and avoids look-ahead bias, which is particularly important in time-series prediction problems such as recession forecasting.
+
+The out-of-time test period begins in 2020, providing a challenging evaluation window that includes recent macroeconomic shocks such as the COVID-19 recession, inflationary pressures, and heightened financial market volatility.
+
+**Connection to Machine Learning in Finance**
+
+The expanded dataset includes both macroeconomic and financial variables, reflecting the forward-looking nature of financial markets. As shown in the summary statistics, these variables exhibit nonlinear relationships, volatility clustering, and structural changes over time. This motivates the use of machine learning methods, which are better equipped to capture complex interactions compared to traditional linear models.
+
+Consistent with the project objective, model performance is evaluated using classification metrics such as the Area Under the Curve (AUC), precision, recall, and related measures. These metrics are particularly important in the context of recession prediction, where class imbalance makes accuracy alone insufficient.
+
+In addition, the evaluation framework incorporates elements of a triptych-style approach, emphasizing not only discrimination (AUC), but also calibration and economic usefulness. This allows for a more comprehensive assessment of whether machine learning models provide meaningful improvements over the logistic regression benchmark.
+
+**Software and Implementation**
+
+All models are implemented in R using a reproducible workflow. The quantmod package is used for data retrieval from the FRED database, while tidyverse supports data transformation and visualization. Model estimation and validation are conducted using the caret framework, with specific algorithms implemented via the randomForest and glmnet packages. Model performance is evaluated using pROC and yardstick, which provide robust classification metrics.
+
+```{r prepare-modeling-data}
+ml_df <- model_df %>%
+  mutate(
+    target = factor(
+      if_else(recession_6m_ahead == 1, "Recession", "No_Recession"),
+      levels = c("No_Recession", "Recession")
+    )
+  ) %>%
+  select(
+    month, target,
+    yield_spread, unemployment, inflation_yoy,
+    indpro_growth_yoy, unrate_change_12m,
+    fed_funds, sp500_return_1m, sp500_return_12m,
+    vix_level, oil_return_12m
+  ) %>%
+  drop_na()
+
+# Quick dataset check (clean + readable)
+tibble(
+  Metric = c("Rows", "Start Date", "End Date"),
+  Value = c(
+    nrow(ml_df),
+    as.character(min(ml_df$month)),
+    as.character(max(ml_df$month))
+  )
+) %>%
+  kable(caption = "Final Modeling Dataset Overview") %>%
+  kable_styling(full_width = FALSE)
+```
+
+```{r train-test-split}
+## Temporal Split 
+# Out-of-time split (aligned with methodology section)
+
+train_df <- ml_df %>% filter(month < as.Date("2020-01-01"))
+test_df  <- ml_df %>% filter(month >= as.Date("2020-01-01"))
+
+x_vars <- setdiff(names(ml_df), c("month", "target"))
+
+train_x <- train_df %>% select(all_of(x_vars))
+test_x  <- test_df %>% select(all_of(x_vars))
+
+train_y <- train_df$target
+test_y  <- test_df$target
+
+# Show class balance (important for grading)
+tibble(
+  Dataset = c("Train", "Test"),
+  Recession = c(sum(train_y == "Recession"), sum(test_y == "Recession")),
+  No_Recession = c(sum(train_y == "No_Recession"), sum(test_y == "No_Recession"))
+) %>%
+  kable(caption = "Class Distribution: Train vs Test") %>%
+  kable_styling(full_width = FALSE)
+```
+
+```{r cross-validation-setup}
+# Cross-Validation Setup
+ctrl_cv <- trainControl(
+  method = "cv",
+  number = 3,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  sampling = "down"
+)
+```
+
+```{r train-models}
+# Train Models
+# Logistic Regression
+logit_cv <- train(
+  x = train_x,
+  y = train_y,
+  method = "glm",
+  family = binomial(),
+  trControl = ctrl_cv,
+  metric = "ROC",
+  preProcess = c("center", "scale")
+)
+
+# Random Forest
+rf_cv <- train(
+  x = train_x,
+  y = train_y,
+  method = "rf",
+  trControl = ctrl_cv,
+  metric = "ROC",
+  tuneLength = 5
+)
+
+# LASSO
+lasso_grid <- expand.grid(
+  alpha = 1,
+  lambda = 10^seq(-4, 1, length = 50)
+)
+
+lasso_cv <- train(
+  x = train_x,
+  y = train_y,
+  method = "glmnet",
+  trControl = ctrl_cv,
+  metric = "ROC",
+  tuneGrid = lasso_grid,
+  preProcess = c("center", "scale")
+)
+```
+
+```{r}
+
+```
+
