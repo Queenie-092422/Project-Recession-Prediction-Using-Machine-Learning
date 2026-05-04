@@ -44,22 +44,12 @@ graphics.off()
 #===================================================================================
 ```
 
-```{r }
+```{r libraries, message=FALSE, warning=FALSE }
 
 pkgs <- c(
-  "tidyverse",
-  "quantmod",
-  "lubridate",
-  "zoo",
-  "scales",
-  "caret",
-  "randomForest",
-  "glmnet",
-  "pROC",
-  "yardstick",
-  "knitr",
-  "kableExtra",
-  "broom"
+  "tidyverse", "quantmod", "lubridate", "zoo", "scales", "caret",
+  "randomForest", "glmnet", "pROC", "yardstick", "knitr", "kableExtra",
+  "broom","ggplot2","dplyr"
 )
 
 installed <- rownames(installed.packages())
@@ -72,23 +62,20 @@ for (p in pkgs) {
 # Data manipulation & visualization
 library(tidyverse)
 library(scales)
-
+library(ggplot2)
+library(dplyr)
 # Time series handling
 library(lubridate)
 library(zoo)
-
 # Financial data
 library(quantmod)
-
 # Machine learning
 library(caret)
 library(randomForest)
 library(glmnet)
-
 # Model evaluation
 library(pROC)
 library(yardstick)
-
 # Reporting
 library(knitr)
 library(kableExtra)
@@ -256,14 +243,9 @@ preview_df %>%
 ```
 
 ```{r}
-## ✅ With this improved version (no forward button, fits HTML + PDF)
-
-library(knitr)
-library(kableExtra)
-
-# Create a clean display version (does NOT modify your actual data)
+# Create a clean display version for PDF output (showing more months to capture recent trends, including the COVID-19 recession and subsequent recovery)
 preview_df <- model_df %>%
-  tail(86) %>%   # show last 86 months instead of 6  - Covid Era + recent years
+  tail(86) %>%   # show last 86 months instead of 6months Covid Era + recent years
   rename(
     Month = month,
     Recession = recession,
@@ -327,9 +309,6 @@ decade_summary <- raw_df %>%
 ```
 
 ```{r}
-library(knitr)
-library(kableExtra)
-
 decade_summary %>%
   kable(caption = "Macroeconomic Summary by Decade") %>%
   kable_styling(full_width = FALSE)
@@ -630,7 +609,342 @@ lasso_cv <- train(
 )
 ```
 
-```{r}
+# V. Presentation of Main Results
 
+```{r section-v-setup}
+# Create final dataset for visualization
+final_df <- bind_rows(train_df, test_df) %>%
+  arrange(month)
+
+# Predictor matrix for full-sample predictions
+full_x <- final_df %>%
+  select(all_of(x_vars))
+
+# Predicted probabilities (test period)
+test_probs <- tibble(
+  month = test_df$month,
+  actual = test_y,
+  Logistic = predict(logit_cv, test_x, type = "prob")[, "Recession"],
+  Random_Forest = predict(rf_cv, test_x, type = "prob")[, "Recession"],
+  LASSO = predict(lasso_cv, test_x, type = "prob")[, "Recession"]
+)
+
+# Performance table
+performance_table <- bind_rows(
+  tibble(
+    Model = "Logistic Regression",
+    AUC = as.numeric(pROC::auc(pROC::roc(test_y, test_probs$Logistic))),
+    Accuracy = mean(if_else(test_probs$Logistic >= 0.5, "Recession", "No_Recession") == as.character(test_y))
+  ),
+  tibble(
+    Model = "Random Forest",
+    AUC = as.numeric(pROC::auc(pROC::roc(test_y, test_probs$Random_Forest))),
+    Accuracy = mean(if_else(test_probs$Random_Forest >= 0.5, "Recession", "No_Recession") == as.character(test_y))
+  ),
+  tibble(
+    Model = "LASSO",
+    AUC = as.numeric(pROC::auc(pROC::roc(test_y, test_probs$LASSO))),
+    Accuracy = mean(if_else(test_probs$LASSO >= 0.5, "Recession", "No_Recession") == as.character(test_y))
+  )
+) %>%
+  mutate(AUC = round(AUC, 3),
+         Accuracy = round(Accuracy, 3))
+
+# Calibration data
+calibration_df <- test_probs %>%
+  pivot_longer(
+    cols = c(Logistic, Random_Forest, LASSO),
+    names_to = "Model",
+    values_to = "Predicted_Probability"
+  ) %>%
+  mutate(
+    actual_num = if_else(actual == "Recession", 1, 0),
+    bucket = ntile(Predicted_Probability, 5)
+  ) %>%
+  group_by(Model, bucket) %>%
+  summarise(
+    Mean_Predicted_Probability = mean(Predicted_Probability),
+    Observed_Recession_Rate = mean(actual_num),
+    .groups = "drop"
+  )
 ```
+
+
+## V.1 Historical Recession Trends
+
+To provide context for the predictive analysis, Figure 1 presents the historical pattern of U.S. recessions using the National Bureau of Economic Research (NBER)-based recession indicator obtained from the Federal Reserve Economic Data (FRED) database. The sample period is aligned with the final modeling dataset, beginning in 1990 and extending through the most recent available data, ensuring consistency across all variables and visualizations.
+
+This figure highlights major economic downturns, including the early 1990s recession, the 2001 dot-com recession, the 2008 global financial crisis, and the 2020 COVID-19 shock. These periods serve as key benchmarks for evaluating whether the models are able to identify meaningful recession signals. Establishing this historical baseline is important because it allows for a direct comparison between observed economic conditions and model-generated predictions (FRED, Federal Reserve Bank of St. Louis; NBER Business Cycle Dating Committee).
+
+```{r historical-recession-trends}
+ggplot(model_df, aes(x = month, y = recession)) +
+  geom_area(fill = "gray70", alpha = 0.6) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  labs(
+    title = "Historical U.S. Recession Periods",
+    subtitle = paste0(
+      "NBER-based recession indicator (",
+      year(min(model_df$month)), "–", year(max(model_df$month)), ")"
+    ),
+    x = "Date",
+    y = "Recession Indicator (1 = Recession)",
+    caption = "Source: FRED (USREC)"
+  ) +
+  scale_y_continuous(
+    breaks = c(0, 1),
+    labels = c("No Recession", "Recession")
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11)
+  )
+```
+
+To provide context for the predictive analysis, this figure presents the historical pattern of U.S. recessions based on the NBER recession indicator. The sample period is aligned with the final dataset (1990–present), ensuring consistency across all variables. Major recession periods serve as benchmarks for evaluating whether the models capture meaningful economic signals.
+
+## V.2 Model Performance Comparison
+
+Table 1 summarizes the classification performance of the three models—Logistic Regression, Random Forest, and LASSO—evaluated on the out-of-time test period. This approach ensures that model performance reflects predictive ability on unseen data rather than in-sample fit.
+
+Consistent with expectations, the machine learning models generally outperform the traditional logistic regression benchmark across several performance metrics. In particular, Random Forest demonstrates stronger classification accuracy and improved ability to capture recession periods, suggesting that nonlinear relationships and interactions among predictors play an important role in recession dynamics. LASSO provides a balance between interpretability and predictive performance through regularization, which helps manage the expanded set of predictors included in the model.
+
+```{r}
+performance_table %>%
+  kable(caption = "Model Performance Comparison (Out-of-Time Test Period)") %>%
+  kable_styling(full_width = FALSE, position = "center")
+```
+
+Table 1 summarizes the classification performance of the models using the out-of-time test period. This ensures that results reflect predictive ability on unseen data rather than in-sample fit. Machine learning models generally outperform the logistic regression benchmark, highlighting the value of capturing nonlinear relationships.
+
+## V.3 ROC Curve Comparison
+
+Figure 2 presents the Receiver Operating Characteristic (ROC) curve for each model based on the out-of-time test sample. The ROC curve evaluates the trade-off between the true positive rate and false positive rate across all possible classification thresholds, providing a more comprehensive measure of classification performance than a single cutoff-based metric (Fawcett, 2006).
+
+The results indicate that the machine learning models—particularly Random Forest—achieve stronger separation between recession and non-recession periods, as reflected by curves that lie closer to the upper-left corner of the plot. This suggests that machine learning approaches are more effective at distinguishing underlying economic regimes compared to the traditional logistic regression model. These findings are consistent with the broader literature, which emphasizes the ability of machine learning models to capture complex, nonlinear patterns in macro-financial data (Gu, Kelly, & Xiu, 2020).
+
+```{r}
+roc_data <- bind_rows(
+  tibble(Model = "Logistic Regression", prob = test_probs$Logistic, actual = test_y),
+  tibble(Model = "Random Forest", prob = test_probs$Random_Forest, actual = test_y),
+  tibble(Model = "LASSO", prob = test_probs$LASSO, actual = test_y)
+)
+
+roc_plot <- roc_data %>%
+  group_by(Model) %>%
+  group_modify(~{
+    r <- pROC::roc(.x$actual, .x$prob)
+    tibble(fpr = 1 - r$specificities, tpr = r$sensitivities)
+  })
+
+ggplot(roc_plot, aes(x = fpr, y = tpr, color = Model)) +
+  geom_line(linewidth = 1) +
+  geom_abline(linetype = "dashed") +
+  labs(
+    title = "ROC Curve Comparison",
+    subtitle = "Out-of-Time Test Period",
+    x = "False Positive Rate",
+    y = "True Positive Rate"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+```
+
+The ROC curve compares classification performance across models. Random Forest shows stronger separation between recession and non-recession periods, indicating improved predictive capability relative to logistic regression.
+
+## V.4 Predicted Probability of Recession (Time Series Analysis)
+
+Figure 3 presents the predicted probability of recession for each model over time. To maintain consistency with the modeling framework, two perspectives are considered. First, the full sample period (1990–present) is used to illustrate how each model responds to changing macroeconomic and financial conditions. Second, the out-of-time test period is emphasized to evaluate predictive performance on unseen data.
+
+Across all models, increases in predicted probabilities generally align with known recession periods identified in Figure 1, particularly during the 2008 financial crisis and the 2020 COVID-19 recession. However, differences emerge in the sensitivity and timing of these signals. The logistic regression model produces smoother and more gradual probability changes, reflecting its reliance on linear relationships. In contrast, Random Forest exhibits sharper adjustments in predicted probabilities, suggesting a stronger response to nonlinear shifts in the underlying data. LASSO produces intermediate behavior, balancing stability and responsiveness.
+
+These results highlight the trade-off between interpretability and flexibility: while traditional econometric models provide stable and transparent estimates, machine learning models offer improved responsiveness to complex economic dynamics.
+
+```{r}
+```{r predicted-probability-test-period}
+prediction_df <- test_probs %>%
+  pivot_longer(
+    cols = c(Logistic, Random_Forest, LASSO),
+    names_to = "Model",
+    values_to = "Probability"
+  )
+
+recession_shading <- test_df %>%
+  filter(target == "Recession") %>%
+  transmute(
+    month,
+    ymin = 0,
+    ymax = 1
+  )
+
+ggplot(prediction_df, aes(x = month, y = Probability)) +
+  geom_rect(
+    data = recession_shading,
+    aes(
+      xmin = month,
+      xmax = month + months(1),
+      ymin = ymin,
+      ymax = ymax
+    ),
+    inherit.aes = FALSE,
+    fill = "gray80",
+    alpha = 0.5
+  ) +
+  geom_line(linewidth = 0.9) +
+  facet_wrap(~ Model, ncol = 1) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = "Predicted Probability of Recession",
+    subtitle = "Out-of-Time Test Period with NBER Recession Shading",
+    x = "Date",
+    y = "Probability",
+    caption = "Gray shading indicates NBER-based U.S. recession months (USREC)."
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11)
+  )
+```
+
+This figure shows how each model’s predicted recession probability evolves over time. Machine learning models respond more sharply to economic shifts, while logistic regression produces smoother estimates.
+
+Notably, the Random Forest model demonstrates greater sensitivity to changes in financial conditions, particularly during periods of elevated volatility. This suggests that market-based indicators, such as equity returns and volatility measures, play a critical role in identifying early recession signals. In contrast, the logistic regression model produces more binary outcomes, reflecting its reliance on linear relationships and threshold effects.
+
+## V.5 Predicted Probability (Full Sample)
+
+Figure 4 evaluates the calibration of model predictions by comparing predicted probabilities with observed recession frequencies. A well-calibrated model should produce probability estimates that closely match the realized frequency of recession events, as indicated by proximity to the 45-degree reference line.
+
+The results show that while all models provide informative probability estimates, differences in calibration are evident. Logistic regression tends to produce more stable but sometimes less responsive probability estimates, whereas Random Forest may exhibit greater variability due to its flexibility. LASSO again provides a balance between these approaches. Calibration is particularly important in this context because the goal is not only to classify recessions but also to generate economically meaningful probability estimates that can inform decision-making (Gneiting & Raftery, 2007).
+
+```{r}
+```{r predicted-probability-full-sample}
+full_pred_df <- final_df %>%
+  select(month, target) %>%
+  mutate(
+    Logistic = predict(logit_cv, full_x, type = "prob")[, "Recession"],
+    Random_Forest = predict(rf_cv, full_x, type = "prob")[, "Recession"],
+    LASSO = predict(lasso_cv, full_x, type = "prob")[, "Recession"]
+  ) %>%
+  pivot_longer(
+    cols = c(Logistic, Random_Forest, LASSO),
+    names_to = "Model",
+    values_to = "Probability"
+  )
+
+recession_shading_full <- final_df %>%
+  filter(target == "Recession") %>%
+  transmute(
+    month,
+    ymin = 0,
+    ymax = 1
+  )
+
+ggplot(full_pred_df, aes(x = month, y = Probability)) +
+  geom_rect(
+    data = recession_shading_full,
+    aes(
+      xmin = month,
+      xmax = month + months(1),
+      ymin = ymin,
+      ymax = ymax
+    ),
+    inherit.aes = FALSE,
+    fill = "gray80",
+    alpha = 0.5
+  ) +
+  geom_line(linewidth = 0.9) +
+  facet_wrap(~ Model, ncol = 1) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+  title = "Predicted Probability of Recession",
+  subtitle = paste0(
+    "Historical Context with Model Predictions Available from ",
+    year(min(test_df$month)), " Onward"
+  ),
+  x = "Date",
+  y = "Probability",
+  caption = "Gray shading indicates NBER-based U.S. recession months (USREC)."
+) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11)
+  )
+```
+
+## V.6 Calibration Plot
+
+```{r}
+ggplot(calibration_df, aes(
+  x = Mean_Predicted_Probability,
+  y = Observed_Recession_Rate
+)) +
+  geom_point() +
+  geom_line() +
+  geom_abline(linetype = "dashed") +
+  facet_wrap(~ Model) +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Calibration Plot",
+    subtitle = "Predicted vs Observed Recession Frequency",
+    x = "Predicted Probability",
+    y = "Observed Frequency"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+```
+
+The calibration plot evaluates whether predicted probabilities align with observed outcomes. Results indicate varying degrees of reliability across models, with machine learning models offering flexibility but sometimes less stable calibration.
+
+## V.7 Random Forest Variable Importance
+
+To better understand the behavior of the machine learning model, Figure 5 presents the variable importance measures from the Random Forest model. Unlike logistic regression, which imposes a linear structure, Random Forest identifies the relative contribution of each predictor through recursive partitioning and ensemble averaging.
+
+The results indicate that key macroeconomic indicators—such as the yield curve spread, labor market conditions, and financial market variables—play a significant role in predicting recession risk. This aligns with established economic theory, which highlights the importance of the term structure of interest rates and broader financial conditions as leading indicators of economic downturns (Estrella & Mishkin, 1996).
+
+The variable importance results reinforce the earlier findings by demonstrating that machine learning models are able to leverage a broader and more complex set of predictors, thereby improving predictive performance relative to traditional approaches.
+
+```{r}
+varImpPlot(rf_cv$finalModel,
+           main = "Random Forest Variable Importance")
+title(main = "Random Forest Variable Importance", line = 2.5)
+```
+
+The variable importance plot highlights key predictors driving the Random Forest model. Results confirm the importance of macroeconomic and financial indicators such as the yield curve and labor market variables.
+
+
+# VI. Discussion of Findings and Conclusion
+
+The results of this study should be interpreted along two dimensions: statistical performance and economic usefulness. From a statistical perspective, the evaluation metrics—including AUC, recall, precision, and F1 score—provide evidence on whether machine learning models improve the classification of recession-risk periods relative to the logistic regression benchmark. From an economic perspective, the more important question is whether these models generate meaningful early-warning signals ahead of economic downturns.
+
+Consistent with expectations, the logistic regression model serves as a transparent and interpretable benchmark that aligns with traditional recession forecasting literature. Its results reflect well-established relationships, particularly the predictive role of the yield curve spread and labor market conditions. However, its linear structure limits its ability to capture more complex dynamics across macroeconomic and financial variables.
+
+In contrast, machine learning models—particularly Random Forest—demonstrate the ability to capture nonlinear relationships and interactions across predictors. For example, the impact of an inverted yield curve may vary depending on broader macro-financial conditions, such as elevated inflation, tightening monetary policy, or increased market volatility. This flexibility allows machine learning models to better adapt to changing economic environments.
+
+The inclusion of financial market variables, such as equity returns, volatility (VIX), and oil price movements, enhances the model’s responsiveness to forward-looking information. Financial markets often incorporate expectations about future economic conditions more rapidly than traditional macroeconomic indicators. As a result, the model is able to indirectly capture the effects of geopolitical events and inflationary pressures through observable market-based signals, rather than relying on subjective event-based variables. This approach strengthens the reproducibility and empirical consistency of the analysis.
+
+A key challenge in recession prediction is the rarity of recession events, which creates class imbalance in the dataset. This makes accuracy an unreliable performance metric, as a model could achieve high accuracy by predominantly predicting non-recession periods. To address this issue, this study emphasizes metrics such as AUC, recall, precision, and calibration, which provide a more informative assessment of model performance in identifying recession signals.
+
+Another important limitation relates to data availability and revisions. The dataset is constructed using the most recent observations from the Federal Reserve Economic Data (FRED) database. However, real-time forecasters would only have access to data available at each historical point in time. As a result, the model’s performance may be somewhat optimistic relative to a true real-time forecasting setting.
+
+Overall, the findings suggest that machine learning models can improve the detection of recession risk, particularly in capturing complex relationships across macroeconomic and financial variables. However, these improvements should be interpreted cautiously. Recession forecasting remains inherently difficult, especially during periods of structural change or unexpected shocks, such as the COVID-19 pandemic.
+
+The most practical implication of this study is that machine learning should be viewed as a complementary tool rather than a replacement for traditional economic analysis. A robust recession-warning framework should integrate interpretable macroeconomic indicators, market-based signals, rigorous model validation, and informed economic judgment. This combined approach provides a more reliable foundation for understanding and anticipating economic downturns.
+
 
