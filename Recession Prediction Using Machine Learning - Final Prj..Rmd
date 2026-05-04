@@ -947,4 +947,41 @@ Overall, the findings suggest that machine learning models can improve the detec
 
 The most practical implication of this study is that machine learning should be viewed as a complementary tool rather than a replacement for traditional economic analysis. A robust recession-warning framework should integrate interpretable macroeconomic indicators, market-based signals, rigorous model validation, and informed economic judgment. This combined approach provides a more reliable foundation for understanding and anticipating economic downturns.
 
+# VII. References
+
+**Data Sources**                                                                  
+- Federal Reserve Economic Data ([FRED](https://fred.stlouisfed.org)).            
+- NBER-based recession indicators ([USREC](https://fred.stlouisfed.org/series/USREC)).                             
+- 10-Year Treasury Constant Maturity Minus 3-Month Treasury ([T10Y3M](https://fred.stlouisfed.org/series/T10Y3M).      
+- Civilian Unemployment Rate ([UNRATE](https://fred.stlouisfed.org/series/UNRATE)).
+- Consumer Price Index for All Urban Consumers ([CPIAUCSL](https://fred.stlouisfed.org/series/CPIAUCSL)).              
+- Industrial Production Index ([INDPRO](https://fred.stlouisfed.org/series/INDPRO)).                           
+- Effective Federal Funds Rate ([FEDFUNDS](https://fred.stlouisfed.org/series/FEDFUNDS)).                        
+- S&P 500 Index ([SP500](https://fred.stlouisfed.org/series/SP500)).              
+- CBOE Volatility Index ([VIXCLS](https://fred.stlouisfed.org/series/VIXCLS)).    
+- Crude Oil Prices: West Texas Intermediate ([DCOILWTICO](https://fred.stlouisfed.org/series/DCOILWTICO)).       
+ - National Bureau of Economic Research ([NBER](https://www.nber.org/research/data/us-business-cycle-expansions-and-contractions)). (2026). US Business Cycle Expansions and Contractions.
+
+**Academic and Methodological References**                                        
+- Estrella, A., & Mishkin, F. S. (1996). The yield curve as a predictor of U.S. recessions. [Federal Reserve Bank of New York](https://www.newyorkfed.org/research/current_issues/ci2-7.html).            
+- Fawcett, T. (2006). An introduction to ROC analysis. [Pattern Recognition Letters](https://doi.org/10.1016/j.patrec.2005.10.010), 27(8), 861–874.           
+- Gneiting, T., & Raftery, A. E. (2007). Strictly proper scoring rules, prediction, and estimation. [Journal of the American Statistical Association](https://doi.org/10.1198/016214506000001437), 102(477), 359–378.     
+- Gu, S., Kelly, B., & Xiu, D. (2020). Empirical asset pricing via machine learning. [Review of Financial Studies](https://doi.org/10.1093/rfs/hhz057), 33(5), 2223–2273.                                                                       
+- Varian, H. R. (2014). Big data: New tricks for econometrics. [Journal of Economic Perspectives](https://doi.org/10.1257/jep.28.2.3), 28(2), 3–28.
+
+**Software and Packages (R Environment)**                                         
+- R Core Team. (2026). R: A language and environment for statistical computing. https://www.r-project.org                                                         
+- Wickham, H., et al. (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686. https://doi.org/10.21105/joss.01686                        
+- Kuhn, M. (2008). Building predictive models in R using the caret package. Journal of Statistical Software, 28(5). https://doi.org/10.18637/jss.v028.i05             
+- Liaw, A., & Wiener, M. (2002). Classification and regression by randomForest. R News, 2(3), 18–22. https://cran.r-project.org/doc/Rnews/Rnews_2002-3.pdf           
+- Friedman, J., Hastie, T., & Tibshirani, R. (2010). Regularization paths for generalized linear models via coordinate descent (glmnet). Journal of Statistical Software. https://doi.org/10.18637/jss.v033.i01                                    
+- Robin, X., et al. (2011). pROC: an open-source package for R and S+ to analyze and compare ROC curves. BMC Bioinformatics. https://doi.org/10.1186/1471-2105-12-77
+
+**Text Book**                                                                     
+- Stuart Russell, & Peter Norvig (2021).               
+Artificial Intelligence: A Modern Approach (4th ed.). Pearson.
+
+**AI Tools**                                                                      
+- OpenAI. (2026). ChatGPT (GPT-5.3) [Large language model].https://chat.openai.com
+- GitHub Copilot. (2026). GitHub Copilot [AI code assistant].https://copilot.github.com
 
