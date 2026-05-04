@@ -22,7 +22,7 @@ p {text-align: justify;} h1.title { text-align: font-weight: bold; }
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-  echo = TRUE,
+  echo = FALSE,
   message = FALSE,
   warning = FALSE,
   fig.align = "center",
@@ -44,8 +44,8 @@ graphics.off()
 #===================================================================================
 ```
 
-```{r libraries, message=FALSE, warning=FALSE }
-
+```{r setup, libraries, include=FALSE}
+# Install packages
 pkgs <- c(
   "tidyverse", "quantmod", "lubridate", "zoo", "scales", "caret",
   "randomForest", "glmnet", "pROC", "yardstick", "knitr", "kableExtra",
@@ -84,8 +84,9 @@ set.seed(6574)
 
 ```
 
+***
 
-# I. Introduction
+## I. Introduction
 
 Understanding and predicting economic recessions remains a central objective in financial economics, given their significant impact on financial markets, corporate performance, investment decisions, and policy responses. Recessions influence portfolio allocation, credit risk, and business planning, making early detection especially valuable for both practitioners and policymakers. Traditionally, recession forecasting has relied on econometric models using a relatively limited set of macroeconomic indicators, such as the yield curve spread, unemployment rates, and inflation. While these models provide useful insights, they may struggle to capture more complex, nonlinear relationships across a broader set of financial and economic variables.
 
@@ -103,7 +104,9 @@ From an artificial intelligence perspective, the model can be viewed as a decisi
 
 Recession periods are defined using the [NBER-based recession indicator (USREC)](https://fred.stlouisfed.org/series/USREC?utm_source=chatgpt.com) obtained from the Federal Reserve Economic Data Federal Reserve Bank of St. Louis ([FRED](https://fred.stlouisfed.org/)) database, which serves as the dependent variable in the classification models.
 
-# II. Overview of Data Sources
+*** 
+
+## II. Overview of Data Sources
 
 This project uses publicly available time-series data from the Federal Reserve Economic Data ([FRED](https://fred.stlouisfed.org/)) database. FRED is selected for its reliability, standardized data structure, and extensive coverage of macroeconomic and financial indicators, making it a widely accepted source in both academic research and policy analysis.
 
@@ -142,7 +145,7 @@ fred_symbols <- c(
 getSymbols(fred_symbols, src = "FRED")
 ```
 
-## II.1 Data Preparation (Monthly Data for Modeling)
+### II.1 Data Preparation (Monthly Data for Modeling)
 
 This section describes how the FRED time-series data are prepared for recession prediction modeling. The initial data collection begins in 1980 to capture a modern economic period while avoiding excessive missing values from earlier historical observations. However, because some financial market indicators, particularly the CBOE Volatility Index (VIX), are only available beginning in 1990, the final modeling dataset is restricted to the common period in which all selected variables are available.
 
@@ -274,7 +277,7 @@ preview_df %>%
   column_spec(1:ncol(preview_df), width = "6em")
 ```
 
-## II.2 Data Preparation - Aggregated by Decade (Descriptive Context)
+### II.2 Data Preparation - Aggregated by Decade (Descriptive Context)
 
 To complement the monthly dataset used for modeling, the analysis includes a decade-level summary of selected macroeconomic variables. This aggregation provides a high-level view of how economic conditions have evolved across different time periods, including the 1980s, 1990s, 2000s, 2010s, and 2020s.
 
@@ -294,7 +297,6 @@ raw_df <- raw_df %>%
   mutate(decade = paste0(floor(year(month) / 10) * 10, "s"))
 ```
 
-
 ```{r}
 decade_summary <- raw_df %>%
   group_by(decade) %>%
@@ -311,7 +313,8 @@ decade_summary <- raw_df %>%
 ```{r}
 decade_summary %>%
   kable(caption = "Macroeconomic Summary by Decade") %>%
-  kable_styling(full_width = FALSE)
+  kable_styling(full_width = FALSE) %>%
+  row_spec(0, bold = TRUE)
 ```
 
 ```{r}
@@ -331,7 +334,9 @@ ggplot(decade_summary, aes(x = decade, y = avg_unemployment, fill = avg_unemploy
   )
 ```
 
-# III. Summary Statistics of the Final Dataset
+***   
+
+## III. Summary Statistics of the Final Dataset
 
 The final modeling dataset consists of monthly macroeconomic and financial variables spanning from 1990 to the present. This period reflects the availability of key financial indicators, particularly the CBOE Volatility Index (VIX), and ensures consistency across all predictors.
 
@@ -463,7 +468,9 @@ target_balance %>%
   )
 ```
 
-# IV. Explanation of Statistical Models and Software Packages Used
+***   
+
+## IV. Explanation of Statistical Models and Software Packages Used
 
 This section describes the statistical and machine learning models used to evaluate the central research question of whether machine learning techniques can improve the early detection of U.S. recessions relative to a traditional econometric approach.
 
@@ -609,7 +616,9 @@ lasso_cv <- train(
 )
 ```
 
-# V. Presentation of Main Results
+***   
+
+## V. Presentation of Main Results
 
 ```{r section-v-setup}
 # Create final dataset for visualization
@@ -670,7 +679,7 @@ calibration_df <- test_probs %>%
 ```
 
 
-## V.1 Historical Recession Trends
+### V.1 Historical Recession Trends
 
 To provide context for the predictive analysis, Figure 1 presents the historical pattern of U.S. recessions using the National Bureau of Economic Research (NBER)-based recession indicator obtained from the Federal Reserve Economic Data (FRED) database. The sample period is aligned with the final modeling dataset, beginning in 1990 and extending through the most recent available data, ensuring consistency across all variables and visualizations.
 
@@ -705,7 +714,7 @@ ggplot(model_df, aes(x = month, y = recession)) +
 
 To provide context for the predictive analysis, this figure presents the historical pattern of U.S. recessions based on the NBER recession indicator. The sample period is aligned with the final dataset (1990–present), ensuring consistency across all variables. Major recession periods serve as benchmarks for evaluating whether the models capture meaningful economic signals.
 
-## V.2 Model Performance Comparison
+### V.2 Model Performance Comparison
 
 Table 1 summarizes the classification performance of the three models—Logistic Regression, Random Forest, and LASSO—evaluated on the out-of-time test period. This approach ensures that model performance reflects predictive ability on unseen data rather than in-sample fit.
 
@@ -719,7 +728,7 @@ performance_table %>%
 
 Table 1 summarizes the classification performance of the models using the out-of-time test period. This ensures that results reflect predictive ability on unseen data rather than in-sample fit. Machine learning models generally outperform the logistic regression benchmark, highlighting the value of capturing nonlinear relationships.
 
-## V.3 ROC Curve Comparison
+### V.3 ROC Curve Comparison
 
 Figure 2 presents the Receiver Operating Characteristic (ROC) curve for each model based on the out-of-time test sample. The ROC curve evaluates the trade-off between the true positive rate and false positive rate across all possible classification thresholds, providing a more comprehensive measure of classification performance than a single cutoff-based metric (Fawcett, 2006).
 
@@ -757,7 +766,7 @@ ggplot(roc_plot, aes(x = fpr, y = tpr, color = Model)) +
 
 The ROC curve compares classification performance across models. Random Forest shows stronger separation between recession and non-recession periods, indicating improved predictive capability relative to logistic regression.
 
-## V.4 Predicted Probability of Recession (Time Series Analysis)
+### V.4 Predicted Probability of Recession (Time Series Analysis)
 
 Figure 3 presents the predicted probability of recession for each model over time. To maintain consistency with the modeling framework, two perspectives are considered. First, the full sample period (1990–present) is used to illustrate how each model responds to changing macroeconomic and financial conditions. Second, the out-of-time test period is emphasized to evaluate predictive performance on unseen data.
 
@@ -765,7 +774,6 @@ Across all models, increases in predicted probabilities generally align with kno
 
 These results highlight the trade-off between interpretability and flexibility: while traditional econometric models provide stable and transparent estimates, machine learning models offer improved responsiveness to complex economic dynamics.
 
-```{r}
 ```{r predicted-probability-test-period}
 prediction_df <- test_probs %>%
   pivot_longer(
@@ -819,13 +827,12 @@ This figure shows how each model’s predicted recession probability evolves ove
 
 Notably, the Random Forest model demonstrates greater sensitivity to changes in financial conditions, particularly during periods of elevated volatility. This suggests that market-based indicators, such as equity returns and volatility measures, play a critical role in identifying early recession signals. In contrast, the logistic regression model produces more binary outcomes, reflecting its reliance on linear relationships and threshold effects.
 
-## V.5 Predicted Probability (Full Sample)
+### V.5 Predicted Probability (Full Sample)
 
 Figure 4 evaluates the calibration of model predictions by comparing predicted probabilities with observed recession frequencies. A well-calibrated model should produce probability estimates that closely match the realized frequency of recession events, as indicated by proximity to the 45-degree reference line.
 
 The results show that while all models provide informative probability estimates, differences in calibration are evident. Logistic regression tends to produce more stable but sometimes less responsive probability estimates, whereas Random Forest may exhibit greater variability due to its flexibility. LASSO again provides a balance between these approaches. Calibration is particularly important in this context because the goal is not only to classify recessions but also to generate economically meaningful probability estimates that can inform decision-making (Gneiting & Raftery, 2007).
 
-```{r}
 ```{r predicted-probability-full-sample}
 full_pred_df <- final_df %>%
   select(month, target) %>%
@@ -884,7 +891,7 @@ ggplot(full_pred_df, aes(x = month, y = Probability)) +
   )
 ```
 
-## V.6 Calibration Plot
+### V.6 Calibration Plot
 
 ```{r}
 ggplot(calibration_df, aes(
@@ -912,7 +919,7 @@ ggplot(calibration_df, aes(
 
 The calibration plot evaluates whether predicted probabilities align with observed outcomes. Results indicate varying degrees of reliability across models, with machine learning models offering flexibility but sometimes less stable calibration.
 
-## V.7 Random Forest Variable Importance
+### V.7 Random Forest Variable Importance
 
 To better understand the behavior of the machine learning model, Figure 5 presents the variable importance measures from the Random Forest model. Unlike logistic regression, which imposes a linear structure, Random Forest identifies the relative contribution of each predictor through recursive partitioning and ensemble averaging.
 
@@ -928,8 +935,9 @@ title(main = "Random Forest Variable Importance", line = 2.5)
 
 The variable importance plot highlights key predictors driving the Random Forest model. Results confirm the importance of macroeconomic and financial indicators such as the yield curve and labor market variables.
 
+***   
 
-# VI. Discussion of Findings and Conclusion
+## VI. Discussion of Findings and Conclusion
 
 The results of this study should be interpreted along two dimensions: statistical performance and economic usefulness. From a statistical perspective, the evaluation metrics—including AUC, recall, precision, and F1 score—provide evidence on whether machine learning models improve the classification of recession-risk periods relative to the logistic regression benchmark. From an economic perspective, the more important question is whether these models generate meaningful early-warning signals ahead of economic downturns.
 
@@ -947,27 +955,33 @@ Overall, the findings suggest that machine learning models can improve the detec
 
 The most practical implication of this study is that machine learning should be viewed as a complementary tool rather than a replacement for traditional economic analysis. A robust recession-warning framework should integrate interpretable macroeconomic indicators, market-based signals, rigorous model validation, and informed economic judgment. This combined approach provides a more reliable foundation for understanding and anticipating economic downturns.
 
-# VII. References
+***   
+
+## VII. References
 
 **Data Sources**                                                                  
-- Federal Reserve Economic Data ([FRED](https://fred.stlouisfed.org)).            
-- NBER-based recession indicators ([USREC](https://fred.stlouisfed.org/series/USREC)).                             
-- 10-Year Treasury Constant Maturity Minus 3-Month Treasury ([T10Y3M](https://fred.stlouisfed.org/series/T10Y3M).      
-- Civilian Unemployment Rate ([UNRATE](https://fred.stlouisfed.org/series/UNRATE)).
-- Consumer Price Index for All Urban Consumers ([CPIAUCSL](https://fred.stlouisfed.org/series/CPIAUCSL)).              
-- Industrial Production Index ([INDPRO](https://fred.stlouisfed.org/series/INDPRO)).                           
-- Effective Federal Funds Rate ([FEDFUNDS](https://fred.stlouisfed.org/series/FEDFUNDS)).                        
-- S&P 500 Index ([SP500](https://fred.stlouisfed.org/series/SP500)).              
-- CBOE Volatility Index ([VIXCLS](https://fred.stlouisfed.org/series/VIXCLS)).    
-- Crude Oil Prices: West Texas Intermediate ([DCOILWTICO](https://fred.stlouisfed.org/series/DCOILWTICO)).       
- - National Bureau of Economic Research ([NBER](https://www.nber.org/research/data/us-business-cycle-expansions-and-contractions)). (2026). US Business Cycle Expansions and Contractions.
+- [Federal Reserve Economic Data FRED](https://fred.stlouisfed.org).            
+- [NBER-based recession indicators USREC](https://fred.stlouisfed.org/series/USREC).                             
+- [10-Year Treasury Constant Maturity Minus 3-Month Treasury T10Y3M](https://fred.stlouisfed.org/series/T10Y3M).                              
+- [Industrial Production Index INDPRO](https://fred.stlouisfed.org/series/INDPRO).                                                                                  
+- [Effective Federal Funds Rate FEDFUNDS](https://fred.stlouisfed.org/series/FEDFUNDS).                        
+- [S&P 500 Index SP500](https://fred.stlouisfed.org/series/SP500).              
+- [CBOE Volatility Index VIXCLS](https://fred.stlouisfed.org/series/VIXCLS).    
+- [Crude Oil Prices: West Texas Intermediate DCOILWTICO](https://fred.stlouisfed.org/series/DCOILWTICO).                      
+- [Consumer Price Index for All Urban Consumers CPIAUCSL](https://fred.stlouisfed.org/series/CPIAUCSL).                          
+- [Civilian Unemployment Rate UNRATE](https://fred.stlouisfed.org/series/UNRATE).                                                                                 
+- [National Bureau of Economic Research NBER.(2026)](https://www.nber.org/research/data/us-business-cycle-expansions-and-contractions). US Business Cycle Expansions and Contractions.     
 
+
+ 
+ 
 **Academic and Methodological References**                                        
 - Estrella, A., & Mishkin, F. S. (1996). The yield curve as a predictor of U.S. recessions. [Federal Reserve Bank of New York](https://www.newyorkfed.org/research/current_issues/ci2-7.html).            
 - Fawcett, T. (2006). An introduction to ROC analysis. [Pattern Recognition Letters](https://doi.org/10.1016/j.patrec.2005.10.010), 27(8), 861–874.           
 - Gneiting, T., & Raftery, A. E. (2007). Strictly proper scoring rules, prediction, and estimation. [Journal of the American Statistical Association](https://doi.org/10.1198/016214506000001437), 102(477), 359–378.     
 - Gu, S., Kelly, B., & Xiu, D. (2020). Empirical asset pricing via machine learning. [Review of Financial Studies](https://doi.org/10.1093/rfs/hhz057), 33(5), 2223–2273.                                                                       
 - Varian, H. R. (2014). Big data: New tricks for econometrics. [Journal of Economic Perspectives](https://doi.org/10.1257/jep.28.2.3), 28(2), 3–28.
+
 
 **Software and Packages (R Environment)**                                         
 - R Core Team. (2026). R: A language and environment for statistical computing. https://www.r-project.org                                                         
@@ -977,9 +991,11 @@ The most practical implication of this study is that machine learning should be 
 - Friedman, J., Hastie, T., & Tibshirani, R. (2010). Regularization paths for generalized linear models via coordinate descent (glmnet). Journal of Statistical Software. https://doi.org/10.18637/jss.v033.i01                                    
 - Robin, X., et al. (2011). pROC: an open-source package for R and S+ to analyze and compare ROC curves. BMC Bioinformatics. https://doi.org/10.1186/1471-2105-12-77
 
+
 **Text Book**                                                                     
 - Stuart Russell, & Peter Norvig (2021).               
 Artificial Intelligence: A Modern Approach (4th ed.). Pearson.
+
 
 **AI Tools**                                                                      
 - OpenAI. (2026). ChatGPT (GPT-5.3) [Large language model].https://chat.openai.com
