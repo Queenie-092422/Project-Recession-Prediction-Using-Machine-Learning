@@ -36,15 +36,15 @@ dir.create("figures", showWarnings = FALSE)
 graphics.off()
 ```
 
-```{r, include=FALSE}
+```{r}
 #==================================================================================
 #Libraries and Tools
 
 #To support data collection, preprocessing, modeling, and evaluation, I use several R packages commonly applied in financial and economic analysis. The tidyverse (including dplyr, tidyr, and ggplot2) is used for data manipulation and visualization, providing a consistent and readable workflow. The quantmod package is used to retrieve financial market data such as ETF prices, while lubridate and zoo support time series handling and date transformations. For scaling and improving visualization readability, the scales package is applied. Machine learning modeling and validation are conducted using caret, along with specific algorithms such as randomForest and glmnet for predictive modeling. Model performance is evaluated using pROC and yardstick, which provide metrics such as AUC, accuracy, and precision. Finally, knitr and kableExtra are used to generate and format the final report outputs, while broom is used to convert model results into tidy formats for interpretation. These tools collectively provide a reproducible and structured workflow for building and evaluating recession prediction models.
-#===================================================================================
+#=================================================================================
 ```
 
-```{r setup, libraries, include=FALSE}
+```{r libraries, include=FALSE}
 # Install packages
 pkgs <- c(
   "tidyverse", "quantmod", "lubridate", "zoo", "scales", "caret",
@@ -62,8 +62,8 @@ for (p in pkgs) {
 # Data manipulation & visualization
 library(tidyverse)
 library(scales)
-library(ggplot2)
-library(dplyr)
+#library(ggplot2)
+#library(dplyr)
 # Time series handling
 library(lubridate)
 library(zoo)
@@ -88,7 +88,7 @@ set.seed(6574)
 
 ## I. Introduction
 
-Understanding and predicting economic recessions remains a central objective in financial economics, given their significant impact on financial markets, corporate performance, investment decisions, and policy responses. Recessions influence portfolio allocation, credit risk, and business planning, making early detection especially valuable for both practitioners and policymakers. Traditionally, recession forecasting has relied on econometric models using a relatively limited set of macroeconomic indicators, such as the yield curve spread, unemployment rates, and inflation. While these models provide useful insights, they may struggle to capture more complex, nonlinear relationships across a broader set of financial and economic variables.
+Understanding and predicting economic recessions remains a central objective in financial economics, given their significant impact on financial markets, corporate performance, investment decisions, and policy responses. Recessions influence portfolio allocation, credit risk, and business planning, making early detection especially valuable for both practitioners and policymakers. Traditionally, recession forecasting has relied on econometric models using a relatively limited set of macroeconomic indicators, such as the yield curve spread, unemployment rates, and inflation. While these models provide valuable insights, they may struggle to capture complex nonlinear relationships across a broader set of financial and economic variables.
 
 The central research question of this project is:
 
@@ -290,9 +290,6 @@ It is important to emphasize that this aggregated representation is **descriptiv
 As a result, the decade-level analysis is used solely to provide contextual insight into long-term economic trends. The primary analysis and model evaluation rely on the higher-frequency monthly dataset, which is more appropriate for identifying and predicting recession periods.
 
 ```{r}
-library(dplyr)
-library(lubridate)
-
 raw_df <- raw_df %>%
   mutate(decade = paste0(floor(year(month) / 10) * 10, "s"))
 ```
@@ -442,7 +439,7 @@ summary_stats %>%
   row_spec(0, bold = TRUE)
 ```
 
-```{r arget-variable-distribution}
+```{r target-variable-distribution}
 ## 🎯 Target Variable Distribution
 
 target_balance <- model_df %>%
@@ -629,7 +626,7 @@ final_df <- bind_rows(train_df, test_df) %>%
 full_x <- final_df %>%
   select(all_of(x_vars))
 
-# Predicted probabilities (test period)
+# Predicted probabilities for the test period
 test_probs <- tibble(
   month = test_df$month,
   actual = test_y,
@@ -638,26 +635,55 @@ test_probs <- tibble(
   LASSO = predict(lasso_cv, test_x, type = "prob")[, "Recession"]
 )
 
+# Convert predicted probabilities into predicted classes using 0.5 threshold
+test_preds <- test_probs %>%
+  mutate(
+    Logistic_class = factor(
+      if_else(Logistic >= 0.5, "Recession", "No_Recession"),
+      levels = c("No_Recession", "Recession")
+    ),
+    RF_class = factor(
+      if_else(Random_Forest >= 0.5, "Recession", "No_Recession"),
+      levels = c("No_Recession", "Recession")
+    ),
+    LASSO_class = factor(
+      if_else(LASSO >= 0.5, "Recession", "No_Recession"),
+      levels = c("No_Recession", "Recession")
+    )
+  )
+
 # Performance table
 performance_table <- bind_rows(
+
   tibble(
     Model = "Logistic Regression",
     AUC = as.numeric(pROC::auc(pROC::roc(test_y, test_probs$Logistic))),
-    Accuracy = mean(if_else(test_probs$Logistic >= 0.5, "Recession", "No_Recession") == as.character(test_y))
+    Accuracy = mean(test_preds$Logistic_class == test_y),
+    Precision = yardstick::precision_vec(test_y, test_preds$Logistic_class, event_level = "second"),
+    Recall = yardstick::recall_vec(test_y, test_preds$Logistic_class, event_level = "second"),
+    F1 = yardstick::f_meas_vec(test_y, test_preds$Logistic_class, event_level = "second")
   ),
+
   tibble(
     Model = "Random Forest",
     AUC = as.numeric(pROC::auc(pROC::roc(test_y, test_probs$Random_Forest))),
-    Accuracy = mean(if_else(test_probs$Random_Forest >= 0.5, "Recession", "No_Recession") == as.character(test_y))
+    Accuracy = mean(test_preds$RF_class == test_y),
+    Precision = yardstick::precision_vec(test_y, test_preds$RF_class, event_level = "second"),
+    Recall = yardstick::recall_vec(test_y, test_preds$RF_class, event_level = "second"),
+    F1 = yardstick::f_meas_vec(test_y, test_preds$RF_class, event_level = "second")
   ),
+
   tibble(
     Model = "LASSO",
     AUC = as.numeric(pROC::auc(pROC::roc(test_y, test_probs$LASSO))),
-    Accuracy = mean(if_else(test_probs$LASSO >= 0.5, "Recession", "No_Recession") == as.character(test_y))
+    Accuracy = mean(test_preds$LASSO_class == test_y),
+    Precision = yardstick::precision_vec(test_y, test_preds$LASSO_class, event_level = "second"),
+    Recall = yardstick::recall_vec(test_y, test_preds$LASSO_class, event_level = "second"),
+    F1 = yardstick::f_meas_vec(test_y, test_preds$LASSO_class, event_level = "second")
   )
+
 ) %>%
-  mutate(AUC = round(AUC, 3),
-         Accuracy = round(Accuracy, 3))
+  mutate(across(where(is.numeric), ~ round(., 3)))
 
 # Calibration data
 calibration_df <- test_probs %>%
@@ -677,7 +703,6 @@ calibration_df <- test_probs %>%
     .groups = "drop"
   )
 ```
-
 
 ### V.1 Historical Recession Trends
 
@@ -716,7 +741,7 @@ To provide context for the predictive analysis, this figure presents the histori
 
 ### V.2 Model Performance Comparison
 
-Table 1 summarizes the classification performance of the three models—Logistic Regression, Random Forest, and LASSO—evaluated on the out-of-time test period. This approach ensures that model performance reflects predictive ability on unseen data rather than in-sample fit.
+Table 1 summarizes model performance across multiple evaluation metrics, including AUC, accuracy, precision, recall, and F1 score. These metrics provide a more comprehensive assessment of predictive performance, particularly in the presence of class imbalance.
 
 Consistent with expectations, the machine learning models generally outperform the traditional logistic regression benchmark across several performance metrics. In particular, Random Forest demonstrates stronger classification accuracy and improved ability to capture recession periods, suggesting that nonlinear relationships and interactions among predictors play an important role in recession dynamics. LASSO provides a balance between interpretability and predictive performance through regularization, which helps manage the expanded set of predictors included in the model.
 
