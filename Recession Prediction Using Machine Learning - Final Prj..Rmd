@@ -3,12 +3,6 @@ title: "Recession Prediction Using Machine Learning"
 author: "Monet Knupp"
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output:
-  pdf_document:
-    toc: true
-    number_sections: false
-    latex_engine: xelatex
-  word_document:
-    toc: true
   html_document:
     toc: true
     toc_float: true
@@ -16,6 +10,12 @@ output:
     css: styles.css
     theme: simplex
     df_print: paged
+  word_document:
+    toc: true
+  pdf_document:
+    toc: true
+    number_sections: false
+    latex_engine: xelatex
 fontsize: 10pt
 geometry: margin=0.25in
 ---
